@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LBS Predictor – FRV &amp; PS Explorer</title>
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+  <!-- Map styles -->
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Map canvas -->
+  <div id="map"></div>
+
+  <!-- Loading / error overlay -->
+  <div id="loading-overlay">
+    <div class="spinner"></div>
+    <span>Loading map data…</span>
+  </div>
+
+  <!-- Floating UI -->
+  <div id="map-ui">
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <button class="toolbar-btn" id="area-btn"   type="button">Area Explorer</button>
+      <button class="toolbar-btn" id="filter-btn" type="button">Filters</button>
+      <button class="toolbar-btn" id="legend-btn" type="button">Notation</button>
+    </div>
+
+    <!-- Area Explorer panel -->
+    <section class="panel" id="area-panel">
+      <label class="field-label" for="district-select">District</label>
+      <select class="map-select" id="district-select"></select>
+
+      <label class="field-label" for="ps-select">Police Station</label>
+      <select class="map-select" id="ps-select" disabled></select>
+
+      <p class="selection-note" id="selection-note">
+        Select a district to filter police stations and FRVs.
+      </p>
+    </section>
+
+    <!-- Filters panel -->
+    <section class="panel" id="filter-panel">
+      <label class="check-row"><input id="toggle-districts"  type="checkbox" checked> District boundaries</label>
+      <label class="check-row"><input id="toggle-ps"         type="checkbox" checked> Police-station boundaries</label>
+      <label class="check-row"><input id="toggle-ps-markers" type="checkbox" checked> Police-station markers</label>
+      <label class="check-row"><input id="toggle-frv"        type="checkbox" checked> FRV markers</label>
+    </section>
+
+    <!-- Legend panel -->
+    <section class="panel" id="legend-panel">
+      <div class="legend-row"><span class="legend-line"></span>          <span>District boundary</span></div>
+      <div class="legend-row"><span class="legend-line ps"></span>       <span>Police-station boundary</span></div>
+      <div class="legend-row"><span class="legend-line selected"></span> <span>Selected police-station boundary</span></div>
+      <div class="legend-row"><span class="legend-square"></span>        <span>Police-station location</span></div>
+      <div class="legend-row"><span class="legend-dot"></span>           <span>FRV – avg response ≤ 10 min</span></div>
+      <div class="legend-row"><span class="legend-dot warn"></span>      <span>FRV – avg response > 10 min</span></div>
+    </section>
+
+  </div><!-- #map-ui -->
+
+  <!-- Map logic -->
+  <script src="map.js"></script>
+</body>
+</html>

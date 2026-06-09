@@ -6,3 +6,4 @@ __pycache__/
 .Python
 lbs_env/
 data/
+web/map_data.json
