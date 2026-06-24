@@ -6,11 +6,31 @@ from html import escape
 from pathlib import Path
 
 import geopandas as gpd
+import pandas as pd
 from shapely.geometry import Point
 
 from .config import Settings
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Helpers to clean NaN/Inf for JSON
+# ---------------------------------------------------------------------------
+
+def _sanitize_val(val):
+    import math
+    if isinstance(val, dict):
+        return {k: _sanitize_val(v) for k, v in val.items()}
+    elif isinstance(val, list):
+        return [_sanitize_val(v) for v in val]
+    elif isinstance(val, float):
+        if math.isnan(val) or math.isinf(val):
+            return None
+        return val
+    elif hasattr(val, "item"):
+        return _sanitize_val(val.item())
+    return val
 
 
 # ---------------------------------------------------------------------------
@@ -22,9 +42,57 @@ def generate_clean_map(settings: Settings) -> str:
     medoids   = _load_json(settings.medoids_json)
     summaries = _load_json(settings.district_summaries_json)
 
-    district_geojson, district_bounds = _load_district_boundaries(settings, summaries)
-    ps_geojson, ps_bounds, district_ps_map, ps_lookup, ps_points = _load_ps_boundaries(settings)
-    frv_points = _build_deployment_points(medoids, ps_lookup)
+    # Check for sufficiency data
+    ps_suff_path = settings.output_dir / "ps_sufficiency_summary.csv"
+    dist_suff_path = settings.output_dir / "district_sufficiency_summary.csv"
+    placements_path = settings.output_dir / "sufficiency_placements.csv"
+
+    ps_suff_df = pd.read_csv(ps_suff_path) if ps_suff_path.exists() else None
+    dist_suff_df = pd.read_csv(dist_suff_path) if dist_suff_path.exists() else None
+    placements_df = pd.read_csv(placements_path) if placements_path.exists() else None
+
+    district_geojson, district_bounds = _load_district_boundaries(settings, summaries, dist_suff_df)
+    ps_geojson, ps_bounds, district_ps_map, ps_lookup, ps_points = _load_ps_boundaries(settings, ps_suff_df)
+    
+    # Build scenarios
+    frv_scenarios = {}
+    if placements_df is not None:
+        for target, group in placements_df.groupby("target"):
+            points = []
+            for idx, row in enumerate(group.itertuples(), 1):
+                ps_name = str(row.police_station)
+                district = str(row.district)
+                ps_key = f"{district}||{ps_name}"
+                
+                # Check for nearest PS distance
+                # In sufficiency, placements are grid cells which belong to a PS.
+                # So distance to nearest PS is typically 0.0 or the distance to the PS center.
+                avg_resp = float(row.avg_response) if pd.notna(getattr(row, "avg_response", None)) else 0.0
+                max_resp = float(row.max_response) if pd.notna(getattr(row, "max_response", None)) else 0.0
+                inc = int(row.incidents) if pd.notna(getattr(row, "incidents", None)) else 0
+
+                points.append({
+                    "lat": float(row.latitude),
+                    "lon": float(row.longitude),
+                    "district": district,
+                    "ps": ps_name,
+                    "psKey": ps_key,
+                    "frvId": f"REQ-{target.upper()}-{row.placement_id}",
+                    "avgResponse": avg_resp,
+                    "maxResponse": max_resp,
+                    "incidents": inc,
+                    "nearestPs": ps_name,
+                    "nearestDistance": 0.0,
+                })
+            frv_scenarios[str(target)] = points
+            
+    # Default frvPoints to current scenario if available, else fallback
+    if "current" in frv_scenarios:
+        frv_points = frv_scenarios["current"]
+    else:
+        frv_points = _build_deployment_points(medoids, ps_lookup)
+        frv_scenarios["current"] = frv_points
+
     _attach_frv_counts(ps_points, frv_points)
 
     center_lat, center_lon = _map_center(frv_points, settings)
@@ -37,15 +105,18 @@ def generate_clean_map(settings: Settings) -> str:
         "psBounds":         ps_bounds,
         "districtPsMap":    district_ps_map,
         "frvPoints":        frv_points,
+        "frvScenarios":     frv_scenarios,
         "psPoints":         ps_points,
         "allBounds":        all_bounds,
         "defaultCenter":    [center_lat, center_lon],
         "defaultZoom":      settings.map_zoom,
+        "hasSufficiency":   placements_df is not None,
     }
 
     output_path = _data_output_path(settings.map_html)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    sanitized_payload = _sanitize_val(payload)
+    output_path.write_text(json.dumps(sanitized_payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     logger.info("Map data saved to %s", output_path)
     return str(output_path)
@@ -66,7 +137,7 @@ def _load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _load_district_boundaries(settings: Settings, summaries: dict) -> tuple[dict, dict]:
+def _load_district_boundaries(settings: Settings, summaries: dict, dist_suff_df: pd.DataFrame | None = None) -> tuple[dict, dict]:
     if not settings.districts_geojson.exists():
         return {"type": "FeatureCollection", "features": []}, {}
 
@@ -82,14 +153,30 @@ def _load_district_boundaries(settings: Settings, summaries: dict) -> tuple[dict
     districts["avg_resp"] = districts["map_district"].apply(
         lambda name: summaries.get(name, {}).get("avg_response_time_min", 0)
     )
+    
+    # Load sufficiency summary statistics
+    for col in ["current_frvs", "current_rt_min", "req_frvs_10m", "req_rt_10m", "add_frvs_10m", "req_frvs_5m", "req_rt_5m", "add_frvs_5m"]:
+        if dist_suff_df is not None and col in dist_suff_df.columns:
+            lookup = dict(zip(dist_suff_df["district"], dist_suff_df[col]))
+            # Handle possible float/int formats and NaN mapping
+            districts[col] = districts["map_district"].map(lookup).fillna(0)
+        else:
+            districts[col] = 0
+
     bounds  = {row.map_district: _geometry_bounds(row.geometry) for row in districts.itertuples()}
+    
+    geojson_cols = [
+        "map_district", "incidents", "frvs", "avg_resp", "geometry",
+        "current_frvs", "current_rt_min", "req_frvs_10m", "req_rt_10m",
+        "add_frvs_10m", "req_frvs_5m", "req_rt_5m", "add_frvs_5m"
+    ]
     geojson = json.loads(
-        districts[["map_district", "incidents", "frvs", "avg_resp", "geometry"]].to_json()
+        districts[geojson_cols].to_json()
     )
     return geojson, bounds
 
 
-def _load_ps_boundaries(settings: Settings) -> tuple[dict, dict, dict, list[dict], list[dict]]:
+def _load_ps_boundaries(settings: Settings, ps_suff_df: pd.DataFrame | None = None) -> tuple[dict, dict, dict, list[dict], list[dict]]:
     if not settings.police_station_geojson.exists():
         return {"type": "FeatureCollection", "features": []}, {}, {}, [], []
 
@@ -105,6 +192,23 @@ def _load_ps_boundaries(settings: Settings) -> tuple[dict, dict, dict, list[dict
     ps_lookup:     list[dict]       = []
     ps_points:     list[dict]       = []
 
+    # Map sufficiency statistics by PS Key (District||PS)
+    suff_lookup = {}
+    if ps_suff_df is not None:
+        for row in ps_suff_df.itertuples():
+            key = f"{row.district}||{row.police_station}"
+            suff_lookup[key] = {
+                "incidents": getattr(row, "incidents", 0),
+                "current_frvs": getattr(row, "current_frvs", 0),
+                "current_rt_min": getattr(row, "current_rt_min", 0.0),
+                "req_frvs_10m": getattr(row, "req_frvs_10m", 0),
+                "req_rt_10m": getattr(row, "req_rt_10m", 0.0),
+                "add_frvs_10m": getattr(row, "add_frvs_10m", 0),
+                "req_frvs_5m": getattr(row, "req_frvs_5m", 0),
+                "req_rt_5m": getattr(row, "req_rt_5m", 0.0),
+                "add_frvs_5m": getattr(row, "add_frvs_5m", 0),
+            }
+
     for row in police_stations.itertuples():
         if not row.map_district or not row.map_ps:
             continue
@@ -119,6 +223,10 @@ def _load_ps_boundaries(settings: Settings) -> tuple[dict, dict, dict, list[dict
             "psKey":    row.map_ps_key,
             "geometry": row.geometry,
         })
+        
+        # Pull stats from sufficiency lookup
+        stats = suff_lookup.get(row.map_ps_key, {})
+        
         ps_points.append({
             "lat":             float(point.y),
             "lon":             float(point.x),
@@ -128,13 +236,33 @@ def _load_ps_boundaries(settings: Settings) -> tuple[dict, dict, dict, list[dict
             "frvCount":        0,
             "nearestDistance": 0.0,
             "avgDistance":     0.0,
+            
+            # Capacity planning stats
+            "incidents":       stats.get("incidents", 0),
+            "current_frvs":    stats.get("current_frvs", 0),
+            "current_rt_min":  stats.get("current_rt_min", None),
+            "req_frvs_10m":    stats.get("req_frvs_10m", 0),
+            "req_rt_10m":      stats.get("req_rt_10m", 0.0),
+            "add_frvs_10m":    stats.get("add_frvs_10m", 0),
+            "req_frvs_5m":     stats.get("req_frvs_5m", 0),
+            "req_rt_5m":       stats.get("req_rt_5m", 0.0),
+            "add_frvs_5m":     stats.get("add_frvs_5m", 0),
         })
 
     for items in district_ps_map.values():
         items.sort(key=lambda item: item["label"])
 
+    # Attach stats to boundaries as well
+    for col in ["current_frvs", "current_rt_min", "req_frvs_10m", "req_rt_10m", "req_frvs_5m", "req_rt_5m"]:
+        police_stations[col] = police_stations["map_ps_key"].apply(
+            lambda k: suff_lookup.get(k, {}).get(col, 0.0) if k in suff_lookup else 0.0
+        )
+
+    geojson_cols = ["map_district", "map_ps", "map_ps_key", "geometry",
+                    "current_frvs", "current_rt_min", "req_frvs_10m", "req_rt_10m",
+                    "req_frvs_5m", "req_rt_5m"]
     geojson = json.loads(
-        police_stations[["map_district", "map_ps", "map_ps_key", "geometry"]].to_json()
+        police_stations[geojson_cols].to_json()
     )
     return geojson, bounds, district_ps_map, ps_lookup, ps_points
 

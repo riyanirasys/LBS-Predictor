@@ -26,6 +26,9 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument("--incremental", action="store_true", help="Only ingest raw files not seen before")
 
     subparsers.add_parser("map", help="Regenerate map from existing output CSV/JSON")
+    
+    sufficiency = subparsers.add_parser("sufficiency", help="Run bottom-up FRV sufficiency and capacity planning")
+    sufficiency.add_argument("--min-utility", type=float, default=2000.0, help="Minimum total response time minutes saved to justify adding an FRV (default: 2000)")
     return parser
 
 
@@ -53,6 +56,17 @@ def main() -> None:
     elif args.command == "map":
         path = generate_map(settings)
         print(f"Map: {path}")
+    elif args.command == "sufficiency":
+        from .sufficiency import run_sufficiency_analysis
+        result = run_sufficiency_analysis(settings, min_utility_mins=args.min_utility)
+        print("Sufficiency planning complete")
+        print("State Summary:")
+        for key, value in result["state_results"].items():
+            print(f"  {key}: {value}")
+        print(f"PS Summary: {result['ps_summary']}")
+        print(f"District Summary: {result['district_summary']}")
+        print(f"State Summary: {result['state_summary']}")
+        print(f"Placements: {result['placements']}")
 
 
 if __name__ == "__main__":

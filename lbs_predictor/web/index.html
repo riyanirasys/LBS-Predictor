@@ -28,9 +28,10 @@
 
     <!-- Toolbar -->
     <div class="toolbar">
-      <button class="toolbar-btn" id="area-btn"   type="button">Area Explorer</button>
-      <button class="toolbar-btn" id="filter-btn" type="button">Filters</button>
-      <button class="toolbar-btn" id="legend-btn" type="button">Notation</button>
+      <button class="toolbar-btn" id="area-btn"    type="button">Area Explorer</button>
+      <button class="toolbar-btn" id="filter-btn"  type="button">Filters</button>
+      <button class="toolbar-btn" id="patrol-btn"  type="button">Patrolling</button>
+      <button class="toolbar-btn" id="legend-btn"  type="button">Notation</button>
     </div>
 
     <!-- Area Explorer panel -->
@@ -48,6 +49,13 @@
 
     <!-- Filters panel -->
     <section class="panel" id="filter-panel">
+      <label class="field-label" for="scenario-select" style="font-weight: 600; color: #1e293b; margin-bottom: 6px; display: block;">Planning Scenario</label>
+      <select class="map-select" id="scenario-select" style="margin-bottom: 12px; padding: 6px; width: 100%; border-radius: 4px; border: 1px solid #cbd5e1; background: #fff;">
+        <option value="current">Current Fleet (Baseline)</option>
+        <option value="10m">10-Min Target (Response Optimized)</option>
+        <option value="5m">5-Min Target (Response Optimized)</option>
+      </select>
+      <hr style="border:0;border-top:1px solid #e2e8f0;margin:8px 0">
       <label class="check-row"><input id="toggle-districts"  type="checkbox" checked> District boundaries</label>
       <label class="check-row"><input id="toggle-ps"         type="checkbox" checked> Police-station boundaries</label>
       <label class="check-row"><input id="toggle-ps-markers" type="checkbox" checked> Police-station markers</label>
@@ -62,9 +70,104 @@
       <div class="legend-row"><span class="legend-square"></span>        <span>Police-station location</span></div>
       <div class="legend-row"><span class="legend-dot"></span>           <span>FRV – avg response ≤ 10 min</span></div>
       <div class="legend-row"><span class="legend-dot warn"></span>      <span>FRV – avg response > 10 min</span></div>
+      <hr style="border:0;border-top:1px solid #e2e8f0;margin:8px 0">
+      <div class="legend-row"><span style="color:#1e90ff;font-size:16px">⬟</span><span>Patrol zone territory</span></div>
+      <div class="legend-row"><span style="font-size:14px">⚪</span>    <span>Patrol waypoint stop</span></div>
+      <div class="legend-row"><span style="font-size:14px">🚓</span>    <span>Animated patrol car</span></div>
     </section>
 
   </div><!-- #map-ui -->
+
+  <!-- Modal Backdrop & Dialog -->
+  <div id="stats-modal" class="modal-backdrop hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">Fleet Optimization & Performance Dashboard</h3>
+        <button class="modal-close" id="stats-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <h4 id="stats-scope-title" style="margin: 0 0 12px 0; color: var(--muted); font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em;">Statewide Summary</h4>
+        
+        <!-- Summary cards -->
+        <div class="stats-grid">
+          <!-- Card 1: Baseline -->
+          <div class="stats-card current">
+            <div class="card-badge">Baseline</div>
+            <div class="card-main-val" id="card-rt-current">—</div>
+            <div class="card-sub-val">Avg Response Time</div>
+            <div class="card-divider"></div>
+            <div class="card-detail">Fleet Size: <strong id="card-fleet-current">—</strong></div>
+            <div class="card-detail">Coverage: <strong id="card-cov-current">—</strong></div>
+          </div>
+          <!-- Card 2: 10m Target -->
+          <div class="stats-card target10m">
+            <div class="card-badge">10m Target</div>
+            <div class="card-main-val" id="card-rt-10m">—</div>
+            <div class="card-sub-val">Avg Response Time</div>
+            <div class="card-divider"></div>
+            <div class="card-detail">Fleet Size: <strong id="card-fleet-10m">—</strong></div>
+            <div class="card-detail">Additional: <strong id="card-add-10m">—</strong></div>
+          </div>
+          <!-- Card 3: 5m Target -->
+          <div class="stats-card target5m">
+            <div class="card-badge">5m Target</div>
+            <div class="card-main-val" id="card-rt-5m">—</div>
+            <div class="card-sub-val">Avg Response Time</div>
+            <div class="card-divider"></div>
+            <div class="card-detail">Fleet Size: <strong id="card-fleet-5m">—</strong></div>
+            <div class="card-detail">Additional: <strong id="card-add-5m">—</strong></div>
+          </div>
+        </div>
+        
+        <!-- Detailed Comparison Table -->
+        <h5 style="margin: 20px 0 8px 0; font-size: 13px; font-weight: 700; color: var(--ink);">Performance Metrics Table</h5>
+        <div style="overflow-x: auto;">
+          <table class="stats-table">
+            <thead>
+              <tr>
+                <th>Scenario</th>
+                <th>Total Fleet</th>
+                <th>Additions</th>
+                <th>Avg Response</th>
+                <th>RT Reduction</th>
+                <th>Incident Coverage</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Baseline (Current)</strong></td>
+                <td id="tbl-fleet-curr">—</td>
+                <td>—</td>
+                <td id="tbl-rt-curr">—</td>
+                <td>Baseline</td>
+                <td id="tbl-cov-curr">—</td>
+              </tr>
+              <tr class="highlight-10m">
+                <td><strong>10-Min Target</strong></td>
+                <td id="tbl-fleet-10m">—</td>
+                <td id="tbl-add-10m" class="text-add">—</td>
+                <td id="tbl-rt-10m" class="text-rt">—</td>
+                <td id="tbl-red-10m" class="text-gain">—</td>
+                <td id="tbl-cov-10m">—</td>
+              </tr>
+              <tr class="highlight-5m">
+                <td><strong>5-Min Target</strong></td>
+                <td id="tbl-fleet-5m">—</td>
+                <td id="tbl-add-5m" class="text-add">—</td>
+                <td id="tbl-rt-5m" class="text-rt">—</td>
+                <td id="tbl-red-5m" class="text-gain">—</td>
+                <td id="tbl-cov-5m">—</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        
+        <p class="stats-note" style="margin-top: 14px; font-size: 12px; color: var(--muted); line-height: 1.4;">
+          * <strong>Coverage</strong> represents the % of total demand (historical incidents) successfully mapped to an active patrol vehicle. The optimized scenarios ensure 100% incident coverage by assigning at least one FRV to every police station.
+        </p>
+      </div>
+    </div>
+  </div>
 
   <!-- Map logic -->
   <script src="map.js"></script>

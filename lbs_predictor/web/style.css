@@ -10,9 +10,10 @@
   --ink:          #17212b;
   --muted:        #66717d;
   --blue:         #1f6feb;
-  --orange:       #f97316;
+  --orange:       #fbff00;
   --green:        #159947;
   --red:          #dc2626;
+  --purple:       #8b5cf6;
 }
 
 html, body {
@@ -141,6 +142,14 @@ html, body {
   box-shadow: 0 0 0 2px rgba(21, 153, 71, 0.4);
 }
 .legend-dot.warn {
+  background: var(--orange);
+  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.35);
+}
+.legend-dot.warn2 {
+  background: var(--purple);
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.35);
+}
+.legend-dot.critical {
   background: var(--red);
   box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.35);
 }
@@ -187,4 +196,11 @@ html, body {
   .panel {
     width: calc(100vw - 20px);
   }
+}
+
+
+ 
+.patrol-loading {
+  opacity: 0.5;
+  pointer-events: none;
 }
